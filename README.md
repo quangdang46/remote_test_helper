@@ -30,7 +30,7 @@ irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/insta
 
 </div>
 
-> **Status:** v0.1.0 implemented (Bash CLI + installers). See [`MASTER_PLAN.md`](./MASTER_PLAN.md) for architecture.
+> **Status:** v0.1.0 implemented (Bash CLI + installers).
 
 ---
 
@@ -362,15 +362,16 @@ A: Fast path for SSH orchestration and installers; Rust is an optional later rew
 
 ---
 
-## Project status & docs
+## Docs
 
 | Doc | Role |
 |-----|------|
-| [`MASTER_PLAN.md`](./MASTER_PLAN.md) | Full architecture, phases, DoD v0.1 |
-| `README.md` | This product face (pre-implement) |
-| `docs/` | SSH Windows / WSL / agent card (after implement) |
+| `README.md` | Product overview + CLI |
+| `docs/AGENT.md` | Agent card |
+| `docs/SSH_WINDOWS.md` | OpenSSH + authorized_keys |
+| `docs/SSH_WSL.md` | WSL hop |
 
-**Implemented:** `setup` · `doctor` · `status` · `list` · `run` · `matrix` · `ssh` · `install.sh` / `install.ps1`.
+**Commands:** `guide` · `setup` · `doctor` · `status` · `list` · `run` · `matrix` · `ssh` · `install.sh` / `install.ps1`.
 
 ---
 
