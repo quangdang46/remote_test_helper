@@ -113,8 +113,11 @@ function Rth-WriteWslShim {
   New-Item -ItemType Directory -Force -Path $Dest | Out-Null
   $cmdPath = Join-Path $Dest "rth.cmd"
 
-  $resolved = (& wsl.exe -e bash -lc "echo -n `$HOME/.local/bin/rth").Trim()
-  if (-not $resolved) { Rth-Fail "could not resolve `$HOME/.local/bin/rth in WSL" }
+  # Avoid UTF-16 nulls from some wsl stdout quirks: ask bash for path cleanly
+  $raw = & wsl.exe -e bash -lc 'printf %s "$HOME/.local/bin/rth"'
+  $resolved = (-join ($raw | ForEach-Object { "$_" })).Trim()
+  $resolved = $resolved -replace "`0", ""
+  if (-not $resolved) { Rth-Fail "could not resolve HOME/.local/bin/rth in WSL" }
 
   & wsl.exe -e test -f $resolved 2>$null
   if ($LASTEXITCODE -ne 0) {
@@ -124,8 +127,11 @@ function Rth-WriteWslShim {
   # rth is a bash script -> wsl -e bash /path/to/rth args...
   $text = "@echo off`r`nrem rth Windows shim -> WSL`r`nwsl.exe -e bash $resolved %*`r`n"
   [System.IO.File]::WriteAllText($cmdPath, $text)
-  Rth-Ok "Windows shim: $cmdPath"
-  Rth-Info "  runs: wsl.exe -e bash $resolved"
+  if (-not (Test-Path -LiteralPath $cmdPath)) {
+    Rth-Fail "failed to write $cmdPath"
+  }
+  Rth-Ok "Windows shim written: $cmdPath"
+  Rth-Info "  -> wsl.exe -e bash $resolved %*"
   Rth-AddUserPath $Dest
   return $cmdPath
 }
@@ -220,7 +226,7 @@ try {
     return
   }
 
-  Rth-Info "remote_test_helper Windows installer ($Branch)"
+  Rth-Info "install.ps1 v4 (branch=$Branch) — creates Windows rth.cmd after WSL"
 
   $useWsl = $false
   if ($ForceWsl) { $useWsl = $true }
