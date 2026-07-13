@@ -1,8 +1,8 @@
-# rth Windows installer v3 — irm|iex safe (no exit; no param block)
+# rth Windows installer v4 — irm|iex safe (no exit; no param block)
+# After WSL install ALWAYS writes %USERPROFILE%\.local\bin\rth.cmd + User PATH.
 #
-#   irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1" | iex
-#
-# After WSL install, writes %USERPROFILE%\.local\bin\rth.cmd so PowerShell can run `rth`.
+# Cache-bust one-liner:
+#   irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1?$(Get-Random)" | iex
 #
 # Env:
 #   $env:RTH_BRANCH = "main"
