@@ -95,7 +95,7 @@ Windows OpenSSH Server (Admin PowerShell):
 Ubuntu WSL (v1 hop via Windows):
   wsl -l -v
   # Ensure distro name matches ubuntu_distro in hosts.conf
-  # rth uses: ssh win 'wsl -d Ubuntu -- bash -lc "…"'
+  # rth uses: ssh win "wsl -d Ubuntu -- bash -lc \"…\"" (cmd-safe)
 
 Edit hosts:
   $EDITOR ~/.config/rth/hosts.conf

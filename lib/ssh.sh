@@ -9,6 +9,15 @@ rth_shell_single_quote() {
   printf "'%s'" "$s"
 }
 
+# Escape for cmd.exe double-quoted string (Windows OpenSSH default shell is cmd).
+# Backslash and double-quote are special inside "...".
+rth_cmd_double_quote() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '"%s"' "$s"
+}
+
 # Build remote command string for a given shell kind
 # Args: shell_kind  command...
 rth_wrap_command() {
@@ -17,7 +26,9 @@ rth_wrap_command() {
   local cmd="$*"
   case "$shell_kind" in
     bash|sh)
-      printf 'bash -lc %s' "$(rth_shell_single_quote "$cmd")"
+      # Prefer double-quoted form so the same string works when OpenSSH's
+      # default shell is Windows cmd.exe (single quotes are literal there).
+      printf 'bash -lc %s' "$(rth_cmd_double_quote "$cmd")"
       ;;
     cmd)
       # cmd /c "..." — escape double quotes
@@ -32,6 +43,18 @@ rth_wrap_command() {
       rth_die "Unknown shell kind: $shell_kind"
       ;;
   esac
+}
+
+# WSL hop via Windows OpenSSH (cmd.exe):
+#   wsl -d Ubuntu -- bash -lc "COMMAND"
+# Do NOT wrap distro in single quotes — cmd passes them literally, so
+# wsl looks for distro name "'Ubuntu'" and fails with DISTRO_NOT_FOUND.
+rth_wsl_remote() {
+  local distro="$1" cmd="$2"
+  if [[ ! "$distro" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    rth_die "unsafe ubuntu_distro name (use letters/digits/._- only): $distro"
+  fi
+  printf 'wsl -d %s -- bash -lc %s' "$distro" "$(rth_cmd_double_quote "$cmd")"
 }
 
 # SSH target user@host -p port
@@ -105,12 +128,11 @@ rth_exec_env() {
       echo $? >"$exit_file"
       ;;
     wsl)
-      # Hop: SSH to Windows host, then wsl -d Distro -- bash -lc 'cmd'
+      # Hop: SSH → Windows (cmd) → wsl -d Distro -- bash -lc "cmd"
       target="$(rth_ssh_target "$env")"
       port="${RTH_LAST_PORT:-22}"
-      local inner remote
-      inner="$(rth_shell_single_quote "$cmd")"
-      remote="wsl -d $(rth_shell_single_quote "$distro") -- bash -lc $inner"
+      local remote
+      remote="$(rth_wsl_remote "$distro" "$cmd")"
       # shellcheck disable=SC2086
       ssh $RTH_SSH_OPTS -p "$port" "$target" "$remote" >"$out_file" 2>"$err_file"
       echo $? >"$exit_file"
@@ -127,9 +149,10 @@ rth_exec_env() {
   else
     RTH_LAST_MS=0
   fi
-  RTH_LAST_EXIT="$(cat "$exit_file" 2>/dev/null || echo 1)"
-  RTH_LAST_STDOUT="$(cat "$out_file")"
-  RTH_LAST_STDERR="$(cat "$err_file")"
+  RTH_LAST_EXIT="$(tr -d '\0' <"$exit_file" 2>/dev/null || echo 1)"
+  # Windows/WSL sometimes emits UTF-16 (NUL bytes); strip so bash $(...) is happy
+  RTH_LAST_STDOUT="$(tr -d '\0' <"$out_file")"
+  RTH_LAST_STDERR="$(tr -d '\0' <"$err_file")"
 
   # Stream with optional prefix
   if [[ -n "$prefix" ]]; then

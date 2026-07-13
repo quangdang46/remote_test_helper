@@ -207,7 +207,7 @@ rth_guide_print_wsl() {
   cat <<'EOF'
 # rth guide wsl
 
-v1 path: SSH → Windows → `wsl -d <distro> -- bash -lc '…'`
+v1 path: SSH → Windows (cmd) → `wsl -d <distro> -- bash -lc "…"`
 
 ## On Windows
 ```powershell

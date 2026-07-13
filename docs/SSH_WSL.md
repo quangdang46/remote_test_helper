@@ -3,7 +3,9 @@
 v1 does **not** require SSH inside WSL. rth connects to **Windows OpenSSH**, then:
 
 ```text
-ssh user@windows 'wsl -d Ubuntu -- bash -lc "COMMAND"'
+# Windows OpenSSH default shell is cmd.exe — do NOT single-quote the distro
+# (cmd treats 'Ubuntu' literally → WSL_E_DISTRO_NOT_FOUND).
+ssh user@windows "wsl -d Ubuntu -- bash -lc \"COMMAND\""
 ```
 
 ## Requirements
