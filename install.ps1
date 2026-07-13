@@ -1,14 +1,15 @@
-# rth Windows installer v2 — safe for:  irm URL | iex
-# Does NOT call exit (exit closes the whole PowerShell window under iex).
+# rth Windows installer v3 — irm|iex safe (no exit; no param block)
 #
 #   irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1" | iex
 #
-# Env (optional):
+# After WSL install, writes %USERPROFILE%\.local\bin\rth.cmd so PowerShell can run `rth`.
+#
+# Env:
 #   $env:RTH_BRANCH = "main"
 #   $env:RTH_VERIFY = "1"
-#   $env:RTH_FORCE_GITBASH = "1"   # skip WSL
+#   $env:RTH_FORCE_GITBASH = "1"
 #   $env:RTH_FORCE_WSL = "1"
-#   $env:RTH_NO_EASY = "1"         # do not edit User PATH
+#   $env:RTH_NO_EASY = "1"
 #   $env:RTH_UNINSTALL = "1"
 
 $ProgressPreference = "SilentlyContinue"
@@ -28,20 +29,36 @@ $Share = Join-Path $env:USERPROFILE ".local\share\rth"
 if ($env:RTH_DEST)  { $Dest  = $env:RTH_DEST }
 if ($env:RTH_SHARE) { $Share = $env:RTH_SHARE }
 
-$DoVerify    = ($env:RTH_VERIFY -eq "1")
-$DoUninstall = ($env:RTH_UNINSTALL -eq "1")
-$DoEasy      = -not ($env:RTH_NO_EASY -eq "1")
+$DoVerify     = ($env:RTH_VERIFY -eq "1")
+$DoUninstall  = ($env:RTH_UNINSTALL -eq "1")
+$DoEasy       = -not ($env:RTH_NO_EASY -eq "1")
 $ForceGitBash = ($env:RTH_FORCE_GITBASH -eq "1")
 $ForceWsl     = ($env:RTH_FORCE_WSL -eq "1")
 
 function Rth-Info([string]$m) { Write-Host "[rth] $m" }
 function Rth-Ok([string]$m)   { Write-Host "[rth] OK $m" -ForegroundColor Green }
 function Rth-Err([string]$m)  { Write-Host "[rth] ERROR $m" -ForegroundColor Red }
+function Rth-Fail([string]$m) { Rth-Err $m; throw $m }
 
-# Never use exit under irm|iex — it kills the host window (looks like a crash).
-function Rth-Fail([string]$m) {
-  Rth-Err $m
-  throw $m
+function Rth-AddUserPath([string]$Dir) {
+  if (-not $DoEasy) { return }
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  if (-not $userPath) { $userPath = "" }
+  $hit = $false
+  foreach ($part in $userPath.Split(";")) {
+    if ($part -and ($part.TrimEnd("\") -ieq $Dir.TrimEnd("\"))) { $hit = $true }
+  }
+  if (-not $hit) {
+    if ($userPath) {
+      [Environment]::SetEnvironmentVariable("Path", "$Dir;$userPath", "User")
+    } else {
+      [Environment]::SetEnvironmentVariable("Path", $Dir, "User")
+    }
+    Rth-Info "Added to User PATH: $Dir"
+  }
+  if ($env:Path -notlike "*$Dir*") {
+    $env:Path = "$Dir;" + $env:Path
+  }
 }
 
 function Rth-Download([string]$Url, [string]$OutFile) {
@@ -49,26 +66,18 @@ function Rth-Download([string]$Url, [string]$OutFile) {
   if (-not (Test-Path $dir)) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
   }
-  # WebClient is more reliable than IWR on PS 5.1
   $wc = New-Object System.Net.WebClient
-  try {
-    $wc.DownloadFile($Url, $OutFile)
-  } finally {
-    $wc.Dispose()
-  }
-  if (-not (Test-Path $OutFile)) {
-    Rth-Fail "download failed: $Url"
-  }
+  try { $wc.DownloadFile($Url, $OutFile) } finally { $wc.Dispose() }
+  if (-not (Test-Path $OutFile)) { Rth-Fail "download failed: $Url" }
 }
 
-function Rth-HasGitBash {
-  $paths = @(
-    (Join-Path $env:ProgramFiles "Git\bin\bash.exe")
-  )
-  $pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
-  if ($pf86) {
-    $paths += (Join-Path $pf86 "Git\bin\bash.exe")
+function Rth-FindGitBash {
+  $paths = @()
+  if ($env:ProgramFiles) {
+    $paths += (Join-Path $env:ProgramFiles "Git\bin\bash.exe")
   }
+  $pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+  if ($pf86) { $paths += (Join-Path $pf86 "Git\bin\bash.exe") }
   if ($env:LOCALAPPDATA) {
     $paths += (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
   }
@@ -81,15 +90,12 @@ function Rth-HasGitBash {
 function Rth-HasWsl {
   if ($ForceGitBash) { return $false }
   if (-not (Get-Command "wsl.exe" -ErrorAction SilentlyContinue)) { return $false }
-  # -l is less likely to hang than launching a distro
   try {
     $old = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $out = & wsl.exe -l -q 2>$null
+    $null = & wsl.exe -l -q 2>$null
     $ErrorActionPreference = $old
-    if ($LASTEXITCODE -ne 0) { return $false }
-    if (-not $out) { return $false }
-    return $true
+    return ($LASTEXITCODE -eq 0)
   } catch {
     return $false
   }
@@ -97,11 +103,31 @@ function Rth-HasWsl {
 
 function Rth-ToUnixPath([string]$win) {
   if ($win -match "^([A-Za-z]):\\(.*)$") {
-    $d = $Matches[1].ToLower()
-    $r = $Matches[2].Replace("\", "/")
-    return "/$d/$r"
+    return ("/" + $Matches[1].ToLower() + "/" + $Matches[2].Replace("\", "/"))
   }
   return $win.Replace("\", "/")
+}
+
+function Rth-WriteWslShim {
+  # Install puts rth only inside WSL. PowerShell needs a .cmd proxy.
+  New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+  $cmdPath = Join-Path $Dest "rth.cmd"
+
+  $resolved = (& wsl.exe -e bash -lc "echo -n `$HOME/.local/bin/rth").Trim()
+  if (-not $resolved) { Rth-Fail "could not resolve `$HOME/.local/bin/rth in WSL" }
+
+  & wsl.exe -e test -f $resolved 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    Rth-Fail "WSL file missing: $resolved (install.sh may have failed)"
+  }
+
+  # rth is a bash script -> wsl -e bash /path/to/rth args...
+  $text = "@echo off`r`nrem rth Windows shim -> WSL`r`nwsl.exe -e bash $resolved %*`r`n"
+  [System.IO.File]::WriteAllText($cmdPath, $text)
+  Rth-Ok "Windows shim: $cmdPath"
+  Rth-Info "  runs: wsl.exe -e bash $resolved"
+  Rth-AddUserPath $Dest
+  return $cmdPath
 }
 
 function Rth-InstallWsl {
@@ -110,20 +136,30 @@ function Rth-InstallWsl {
   $flags = "--easy-mode"
   if ($DoVerify) { $flags = "$flags --verify" }
   $cmd = "curl -fsSL $url | bash -s -- $flags"
-  Rth-Info "wsl -e bash -lc <$cmd>"
+  Rth-Info "wsl -e bash -lc: $cmd"
   & wsl.exe -e bash -lc $cmd
   if ($LASTEXITCODE -ne 0) {
-    Rth-Fail "WSL install failed (exit $LASTEXITCODE). Set `$env:RTH_FORCE_GITBASH=1 and retry, or fix WSL."
+    Rth-Fail "WSL install failed (exit $LASTEXITCODE). Try: `$env:RTH_FORCE_GITBASH='1'; irm ... | iex"
   }
-  Rth-Ok "installed in WSL"
-  Rth-Info "Open Ubuntu/WSL terminal, then: rth setup"
-  Rth-Info "Or: wsl -e rth --help"
+  Rth-Ok "WSL binary at ~/.local/bin/rth"
+
+  Rth-Info "Creating Windows rth.cmd (so PowerShell finds rth)..."
+  $shim = Rth-WriteWslShim
+
+  Rth-Info "Quick check: rth --version"
+  try {
+    & $shim --version
+  } catch {
+    Rth-Info "shim check soft-fail; run manually: wsl -e bash -lc 'rth --version'"
+  }
+
+  Rth-Ok "done — try: rth --version"
+  Rth-Info "If not found, open a NEW PowerShell, or: `$env:Path = `"$Dest;`$env:Path`""
+  Rth-Info "Next: rth setup"
 }
 
 function Rth-InstallGitBash([string]$BashExe) {
-  Rth-Info "Git Bash: $BashExe"
-  Rth-Info "Dest=$Dest Share=$Share"
-
+  Rth-Info "Git Bash install: $BashExe"
   New-Item -ItemType Directory -Force -Path $Dest  | Out-Null
   New-Item -ItemType Directory -Force -Path $Share | Out-Null
   New-Item -ItemType Directory -Force -Path (Join-Path $Share "bin") | Out-Null
@@ -133,23 +169,15 @@ function Rth-InstallGitBash([string]$BashExe) {
   $base = "https://raw.githubusercontent.com/$Owner/$Repo/$Branch"
   $tmp = Join-Path $env:TEMP ("rth-" + [Guid]::NewGuid().ToString("N"))
   New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-
   try {
-    $rels = @(
-      "bin/rth",
-      "lib/common.sh",
-      "lib/ssh.sh",
-      "lib/matrix.sh",
-      "lib/setup.sh",
-      "lib/guide.sh",
-      "config/hosts.example.conf"
-    )
-    foreach ($rel in $rels) {
+    foreach ($rel in @(
+      "bin/rth","lib/common.sh","lib/ssh.sh","lib/matrix.sh",
+      "lib/setup.sh","lib/guide.sh","config/hosts.example.conf"
+    )) {
       $out = Join-Path $tmp ($rel.Replace("/", "\"))
       Rth-Info "GET $rel"
       Rth-Download "$base/$rel" $out
     }
-
     Copy-Item (Join-Path $tmp "bin\rth") (Join-Path $Share "bin\rth") -Force
     Copy-Item (Join-Path $tmp "lib\*") (Join-Path $Share "lib") -Force
     if (Test-Path (Join-Path $tmp "config")) {
@@ -158,54 +186,27 @@ function Rth-InstallGitBash([string]$BashExe) {
 
     $shareUnix = Rth-ToUnixPath $Share
     $runSh = Join-Path $Share "rth-run.sh"
-    # LF-only bash wrapper (single-quoted PS strings — no $@ expansion bugs)
     $nl = [char]10
     $runBody = '#!/usr/bin/env bash' + $nl +
       'set -euo pipefail' + $nl +
       ('export RTH_ROOT="' + $shareUnix + '"') + $nl +
       'exec bash "$RTH_ROOT/bin/rth" "$@"' + $nl
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($runSh, $runBody, $utf8NoBom)
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($runSh, $runBody, $utf8)
 
     $cmdPath = Join-Path $Dest "rth.cmd"
-    $cmdLines = @(
-      "@echo off",
-      "setlocal",
-      "`"$BashExe`" `"$runSh`" %*"
-    )
-    [System.IO.File]::WriteAllText($cmdPath, ($cmdLines -join "`r`n") + "`r`n")
+    $cmdBody = "@echo off`r`n`"$BashExe`" `"$runSh`" %*`r`n"
+    [System.IO.File]::WriteAllText($cmdPath, $cmdBody)
 
-    if ($DoEasy) {
-      $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-      if (-not $userPath) { $userPath = "" }
-      $hit = $false
-      foreach ($part in $userPath.Split(";")) {
-        if ($part -and ($part.TrimEnd("\") -ieq $Dest.TrimEnd("\"))) { $hit = $true }
-      }
-      if (-not $hit) {
-        if ($userPath) {
-          [Environment]::SetEnvironmentVariable("Path", "$Dest;$userPath", "User")
-        } else {
-          [Environment]::SetEnvironmentVariable("Path", $Dest, "User")
-        }
-        $env:Path = "$Dest;" + $env:Path
-        Rth-Info "PATH updated (open a NEW terminal for 'rth')"
-      }
-    }
-
+    Rth-AddUserPath $Dest
     if ($DoVerify) {
-      Rth-Info "verify..."
       & $BashExe $runSh "--version"
       if ($LASTEXITCODE -ne 0) { Rth-Fail "verify failed" }
     }
-
     Rth-Ok "installed $cmdPath"
     Rth-Info "Next: rth setup"
-    Rth-Info "Then: rth doctor"
   } finally {
-    if (Test-Path $tmp) {
-      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
-    }
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
   }
 }
 
@@ -222,40 +223,23 @@ try {
   Rth-Info "remote_test_helper Windows installer ($Branch)"
 
   $useWsl = $false
-  if ($ForceWsl) {
-    $useWsl = $true
-  } elseif (-not $ForceGitBash) {
-    $useWsl = Rth-HasWsl
-  }
+  if ($ForceWsl) { $useWsl = $true }
+  elseif (-not $ForceGitBash) { $useWsl = Rth-HasWsl }
 
   if ($useWsl) {
     Rth-InstallWsl
     return
   }
 
-  Rth-Info "Using Git Bash path (WSL skipped or unavailable)..."
-  $bash = Rth-HasGitBash
+  Rth-Info "WSL path skipped — trying Git Bash..."
+  $bash = Rth-FindGitBash
   if ($bash) {
     Rth-InstallGitBash $bash
     return
   }
 
-  Rth-Fail @"
-Need WSL or Git Bash.
-
-  WSL:  wsl --install   (reboot, open Ubuntu once)
-  Git:  https://git-scm.com/download/win
-
-Then:
-  irm "https://raw.githubusercontent.com/$Owner/$Repo/main/install.ps1" | iex
-
-Force Git Bash even if WSL exists:
-  `$env:RTH_FORCE_GITBASH = "1"
-  irm "https://raw.githubusercontent.com/$Owner/$Repo/main/install.ps1" | iex
-"@
+  Rth-Fail "Need WSL or Git for Windows. Install one, then re-run irm|iex."
 } catch {
   Rth-Err $_.Exception.Message
-  # do not rethrow if you want a quiet end; rethrow keeps $Error populated
-  # return without exit so the PowerShell window stays open
   return
 }
