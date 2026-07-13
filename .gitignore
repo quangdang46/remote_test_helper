@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local / draft assets (keep only rth_illustration.webp)
+rth_illustration_*.webp
+rth_illustration_*.jpg
+rth_illustration.png
+rth_illustration_candidate.*
+
+# Runtime
+logs/
+*.log
+
+# Local config overrides
+config/hosts.conf
+.env
+.rth.env
