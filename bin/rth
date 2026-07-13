@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+# rth — Remote Test Helper
+# Multi-OS remote command runner for Mac / Windows / Ubuntu WSL labs.
+set -euo pipefail
+
+RTH_VERSION="0.1.0"
+
+# Resolve install root (supports: repo checkout, ~/.local/share/rth, same-dir libs)
+_rth_resolve_root() {
+  local self src
+  self="${BASH_SOURCE[0]}"
+  if [[ -L "$self" ]]; then
+    src="$(readlink "$self" 2>/dev/null || readlink -f "$self" 2>/dev/null || true)"
+    [[ -n "$src" ]] && self="$src"
+  fi
+  local dir
+  dir="$(cd "$(dirname "$self")" && pwd)"
+  if [[ -d "$dir/../lib" && -f "$dir/../lib/common.sh" ]]; then
+    printf '%s' "$(cd "$dir/.." && pwd)"
+    return
+  fi
+  if [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/rth/lib" ]]; then
+    printf '%s' "${XDG_DATA_HOME:-$HOME/.local/share}/rth"
+    return
+  fi
+  if [[ -d "$HOME/.local/share/rth/lib" ]]; then
+    printf '%s' "$HOME/.local/share/rth"
+    return
+  fi
+  printf '%s' "$(cd "$dir/.." && pwd)"
+}
+
+RTH_ROOT="$(_rth_resolve_root)"
+# shellcheck source=../lib/common.sh
+source "$RTH_ROOT/lib/common.sh"
+# shellcheck source=../lib/ssh.sh
+source "$RTH_ROOT/lib/ssh.sh"
+# shellcheck source=../lib/matrix.sh
+source "$RTH_ROOT/lib/matrix.sh"
+# shellcheck source=../lib/setup.sh
+source "$RTH_ROOT/lib/setup.sh"
+
+rth_usage() {
+  cat <<EOF
+rth $RTH_VERSION — Remote Test Helper
+Run the same checks on Mac / Windows / Ubuntu WSL over SSH; stream logs home.
+
+Usage:
+  rth [global flags] <command> [args]
+
+Setup & health
+  setup [--non-interactive] [--easy-mode]
+  doctor [-e env,...]
+  status  [-e env,...]
+  list
+
+Run
+  run    -e <env> [--] <cmd...>
+  matrix [-e env,...] [--serial] [--] <cmd...>
+  ssh    <env>
+
+Global flags
+  --json              Machine-readable JSON on stdout
+  --config PATH       hosts.conf path (default: ~/.config/rth/hosts.conf)
+  --save              Also write ./logs/<ts>/<env>.log
+  --timeout N         SSH/command timeout seconds (default 30; via ConnectTimeout)
+  --shell cmd|powershell   Windows shell override
+  -e, --env NAME      Filter env(s), comma-separated
+  -q, --quiet         Less stderr chrome
+  -h, --help
+  -V, --version
+
+Exit codes
+  0  all ok
+  1  usage / config error
+  2  partial failure (matrix/doctor)
+  3  all failed / unreachable
+  4  timeout (reserved)
+
+Examples
+  rth setup
+  rth doctor
+  rth run -e mac -- uname -a
+  rth run -e win -- curl --version
+  rth matrix -- 'echo rth-ok'
+  rth matrix --json --save -- 'curl --version'
+
+Docs: https://github.com/quangdang46/remote_test_helper
+EOF
+}
+
+# Parse global flags then dispatch
+main() {
+  local cmd=""
+  local -a rest=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        rth_usage
+        exit 0
+        ;;
+      -V|--version)
+        echo "rth $RTH_VERSION"
+        exit 0
+        ;;
+      --json)
+        RTH_JSON=1
+        export RTH_JSON
+        shift
+        ;;
+      --config)
+        RTH_CONFIG="${2-}"
+        [[ -n "$RTH_CONFIG" ]] || rth_die "--config requires a path"
+        export RTH_CONFIG
+        shift 2
+        ;;
+      --config=*)
+        RTH_CONFIG="${1#*=}"
+        export RTH_CONFIG
+        shift
+        ;;
+      --save)
+        RTH_SAVE=1
+        shift
+        ;;
+      --timeout)
+        RTH_TIMEOUT="${2-}"
+        [[ -n "$RTH_TIMEOUT" ]] || rth_die "--timeout requires seconds"
+        shift 2
+        ;;
+      --timeout=*)
+        RTH_TIMEOUT="${1#*=}"
+        shift
+        ;;
+      --shell)
+        RTH_SHELL_OVERRIDE="${2-}"
+        shift 2
+        ;;
+      --shell=*)
+        RTH_SHELL_OVERRIDE="${1#*=}"
+        shift
+        ;;
+      --serial)
+        RTH_SERIAL=1
+        shift
+        ;;
+      -e|--env)
+        RTH_ENV_FILTER="${2-}"
+        [[ -n "$RTH_ENV_FILTER" ]] || rth_die "--env requires a name"
+        shift 2
+        ;;
+      --env=*)
+        RTH_ENV_FILTER="${1#*=}"
+        shift
+        ;;
+      -q|--quiet)
+        RTH_QUIET=1
+        shift
+        ;;
+      --)
+        shift
+        rest+=("$@")
+        break
+        ;;
+      -*)
+        rth_die "Unknown flag: $1 (try --help)"
+        ;;
+      *)
+        cmd="$1"
+        shift
+        rest+=("$@")
+        break
+        ;;
+    esac
+  done
+
+  # Apply timeout into SSH opts when config loads later
+  export RTH_TIMEOUT RTH_SAVE RTH_SERIAL RTH_SHELL_OVERRIDE RTH_ENV_FILTER RTH_QUIET
+
+  [[ -n "$cmd" ]] || { rth_usage; exit 1; }
+
+  case "$cmd" in
+    setup)
+      rth_cmd_setup "${rest[@]}"
+      ;;
+    doctor)
+      rth_load_config
+      # inject ConnectTimeout from RTH_TIMEOUT
+      RTH_SSH_OPTS="${RTH_SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new} -o ConnectTimeout=${RTH_TIMEOUT}"
+      rth_cmd_doctor
+      ;;
+    status)
+      rth_cmd_status
+      ;;
+    list)
+      rth_cmd_list
+      ;;
+    run)
+      rth_load_config
+      RTH_SSH_OPTS="${RTH_SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new} -o ConnectTimeout=${RTH_TIMEOUT}"
+      local env=""
+      local -a cmdparts=()
+      local i=0
+      while [[ $i -lt ${#rest[@]} ]]; do
+        case "${rest[$i]}" in
+          -e|--env)
+            i=$((i + 1))
+            env="${rest[$i]-}"
+            i=$((i + 1))
+            ;;
+          --json) RTH_JSON=1; i=$((i + 1)) ;;
+          --save) RTH_SAVE=1; i=$((i + 1)) ;;
+          --serial) RTH_SERIAL=1; i=$((i + 1)) ;;
+          --shell)
+            i=$((i + 1))
+            RTH_SHELL_OVERRIDE="${rest[$i]-}"
+            i=$((i + 1))
+            ;;
+          --timeout)
+            i=$((i + 1))
+            RTH_TIMEOUT="${rest[$i]-}"
+            i=$((i + 1))
+            ;;
+          --)
+            i=$((i + 1))
+            cmdparts+=("${rest[@]:$i}")
+            break
+            ;;
+          -*)
+            rth_die "run: unknown flag ${rest[$i]}"
+            ;;
+          *)
+            cmdparts+=("${rest[$i]}")
+            i=$((i + 1))
+            ;;
+        esac
+      done
+      # prefer -e from global filter if set
+      if [[ -z "$env" && -n "${RTH_ENV_FILTER:-}" ]]; then
+        env="${RTH_ENV_FILTER%%,*}"
+      fi
+      [[ -n "$env" ]] || rth_die "run: need -e <env> (mac|win|ubuntu)"
+      [[ ${#cmdparts[@]} -gt 0 ]] || rth_die "run: missing command after --"
+      rth_cmd_run "$env" "${cmdparts[*]}"
+      ;;
+    matrix)
+      rth_load_config
+      RTH_SSH_OPTS="${RTH_SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new} -o ConnectTimeout=${RTH_TIMEOUT}"
+      local -a cmdparts=()
+      local i=0
+      while [[ $i -lt ${#rest[@]} ]]; do
+        case "${rest[$i]}" in
+          -e|--env)
+            i=$((i + 1))
+            RTH_ENV_FILTER="${rest[$i]-}"
+            i=$((i + 1))
+            ;;
+          --json) RTH_JSON=1; i=$((i + 1)) ;;
+          --save) RTH_SAVE=1; i=$((i + 1)) ;;
+          --serial)
+            RTH_SERIAL=1
+            i=$((i + 1))
+            ;;
+          --timeout)
+            i=$((i + 1))
+            RTH_TIMEOUT="${rest[$i]-}"
+            i=$((i + 1))
+            ;;
+          --)
+            i=$((i + 1))
+            cmdparts+=("${rest[@]:$i}")
+            break
+            ;;
+          -*)
+            rth_die "matrix: unknown flag ${rest[$i]}"
+            ;;
+          *)
+            cmdparts+=("${rest[$i]}")
+            i=$((i + 1))
+            ;;
+        esac
+      done
+      [[ ${#cmdparts[@]} -gt 0 ]] || rth_die "matrix: missing command (try: rth matrix -- 'echo ok')"
+      rth_cmd_matrix "${cmdparts[*]}"
+      ;;
+    ssh)
+      rth_load_config
+      RTH_SSH_OPTS="${RTH_SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new} -o ConnectTimeout=${RTH_TIMEOUT}"
+      local env="${rest[0]-}"
+      [[ -n "$env" ]] || rth_die "ssh: need env name"
+      rth_require_env "$env"
+      rth_ssh_interactive "$env"
+      ;;
+    help)
+      rth_usage
+      ;;
+    *)
+      rth_die "Unknown command: $cmd (try rth --help)"
+      ;;
+  esac
+}
+
+main "$@"

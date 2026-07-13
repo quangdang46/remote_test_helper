@@ -1,6 +1,6 @@
 # MASTER PLAN — `remote_test_helper` (`rth`)
 
-> **Status:** Planning (pre-implementation)  
+> **Status:** v0.1.0 implemented (2026-07-13)  
 > **Date:** 2026-07-13  
 > **Language:** Bash CLI (v1)  
 > **Sibling pattern:** `remote_compilation_helper` → `rch`  

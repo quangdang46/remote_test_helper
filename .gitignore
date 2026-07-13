@@ -17,6 +17,7 @@ rth_illustration_candidate.*
 # Runtime
 logs/
 *.log
+/tmp/
 
 # Local config overrides
 config/hosts.conf

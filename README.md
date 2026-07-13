@@ -30,7 +30,7 @@ irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/insta
 
 </div>
 
-> **Status:** Design frozen in [`MASTER_PLAN.md`](./MASTER_PLAN.md). CLI / installers **not implemented yet**—README describes the target product you will get after implementation.
+> **Status:** v0.1.0 implemented (Bash CLI + installers). See [`MASTER_PLAN.md`](./MASTER_PLAN.md) for architecture.
 
 ---
 
@@ -163,8 +163,6 @@ rth matrix -- 'yourcli --version && yourcli smoke'
 
 ## Installation
 
-> Installers ship **after** implementation. Commands below are the **target** UX.
-
 ### macOS / Linux / WSL
 
 ```bash
@@ -172,7 +170,7 @@ curl -fsSL "https://raw.githubusercontent.com/quangdang46/remote_test_helper/mai
   | bash -s -- --easy-mode
 ```
 
-Flags (planned): `--dest`, `--version`, `--verify`, `--uninstall`, `--quiet`.
+Flags: `--dest`, `--share`, `--version` / `--branch`, `--verify`, `--uninstall`, `--quiet`, `--from-source`.
 
 ### Windows PowerShell
 
@@ -180,15 +178,15 @@ Flags (planned): `--dest`, `--version`, `--verify`, `--uninstall`, `--quiet`.
 irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1" | iex
 ```
 
-Planned behavior: prefer install **into WSL** when present; else Git Bash + `rth.cmd` shim. Pure PowerShell without bash is not a v1 runtime.
+Prefers **WSL** install when present; else Git Bash + `rth.cmd` shim. Pure PowerShell without bash is not a v1 runtime.
 
 ### From source (dev)
 
 ```bash
 git clone https://github.com/quangdang46/remote_test_helper.git
 cd remote_test_helper
-# after implement: ./bin/rth --help
-# or: install -m 0755 bin/rth ~/.local/bin/rth
+./install.sh --easy-mode --verify
+# or: ./bin/rth --help
 ```
 
 ---
@@ -327,8 +325,8 @@ Transport is **SSH only**. No custom daemon in v1.
 - **Not** a compile offloader—use **RCH** for remote `cargo`/gcc.  
 - v1 Ubuntu path depends on **Windows + WSL hop**, not direct LAN SSH to WSL.  
 - Complex remote quoting on Windows is brittle—keep commands simple.  
-- Installers / CLI are **planned** until implementation is confirmed.  
-- No `push` of local binaries in v0.1 (install-link and PATH-based tools first).
+- No `push` of local binaries in v0.1 (install-link and PATH-based tools first).  
+- Remote envs need working SSH keys (`rth setup` / `rth doctor`).
 
 ---
 
@@ -365,9 +363,7 @@ A: Fast path for SSH orchestration and installers; Rust is an optional later rew
 | `README.md` | This product face (pre-implement) |
 | `docs/` | SSH Windows / WSL / agent card (after implement) |
 
-**Implementation starts only after you confirm this README + plan.**
-
-Planned phases: skeleton → SSH/matrix → setup/doctor → install.sh/ps1 → shellcheck + `v0.1.0`.
+**Implemented:** `setup` · `doctor` · `status` · `list` · `run` · `matrix` · `ssh` · `install.sh` / `install.ps1`.
 
 ---
 
