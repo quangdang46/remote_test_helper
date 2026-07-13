@@ -179,10 +179,18 @@ Flags: `--dest`, `--share`, `--version` / `--branch`, `--verify`, `--uninstall`,
 ### Windows PowerShell
 
 ```powershell
+# Requires WSL (ready) or Git for Windows
 irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1" | iex
 ```
 
-Prefers **WSL** install when present; else Git Bash + `rth.cmd` shim. Pure PowerShell without bash is not a v1 runtime.
+If `irm | iex` errors, save then run:
+
+```powershell
+irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1" -OutFile $env:TEMP\rth-install.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\rth-install.ps1
+```
+
+Prefers **WSL** when `wsl -e true` works; else Git Bash + `rth.cmd`.
 
 ### From source (dev)
 
