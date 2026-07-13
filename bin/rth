@@ -39,6 +39,8 @@ source "$RTH_ROOT/lib/ssh.sh"
 source "$RTH_ROOT/lib/matrix.sh"
 # shellcheck source=../lib/setup.sh
 source "$RTH_ROOT/lib/setup.sh"
+# shellcheck source=../lib/guide.sh
+source "$RTH_ROOT/lib/guide.sh"
 
 rth_usage() {
   cat <<EOF
@@ -49,9 +51,10 @@ Usage:
   rth [global flags] <command> [args]
 
 Setup & health
-  setup [--non-interactive] [--easy-mode]
+  guide  [setup|windows|wsl|config|agent] [--json]
+  setup  [--non-interactive] [--easy-mode]
   doctor [-e env,...]
-  status  [-e env,...]
+  status [-e env,...]
   list
 
 Run
@@ -78,6 +81,9 @@ Exit codes
   4  timeout (reserved)
 
 Examples
+  rth guide                 # agent/human lab bring-up playbook
+  rth guide --json          # structured steps for agents
+  rth guide windows         # paste-ready OpenSSH + key steps
   rth setup
   rth doctor
   rth run -e mac -- uname -a
@@ -181,11 +187,27 @@ main() {
   [[ -n "$cmd" ]] || { rth_usage; exit 1; }
 
   case "$cmd" in
+    guide)
+      rth_cmd_guide "${rest[@]}"
+      ;;
     setup)
       rth_cmd_setup "${rest[@]}"
       ;;
     doctor)
       rth_load_config
+      # allow: rth doctor -e win
+      local di=0
+      while [[ $di -lt ${#rest[@]} ]]; do
+        case "${rest[$di]}" in
+          -e|--env)
+            di=$((di + 1))
+            RTH_ENV_FILTER="${rest[$di]-}"
+            di=$((di + 1))
+            ;;
+          --json) RTH_JSON=1; di=$((di + 1)) ;;
+          *) di=$((di + 1)) ;;
+        esac
+      done
       # inject ConnectTimeout from RTH_TIMEOUT
       RTH_SSH_OPTS="${RTH_SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new} -o ConnectTimeout=${RTH_TIMEOUT}"
       rth_cmd_doctor

@@ -75,6 +75,7 @@ try {
         @{ Rel = "lib/ssh.sh"; Out = "lib\ssh.sh" },
         @{ Rel = "lib/matrix.sh"; Out = "lib\matrix.sh" },
         @{ Rel = "lib/setup.sh"; Out = "lib\setup.sh" },
+        @{ Rel = "lib/guide.sh"; Out = "lib\guide.sh" },
         @{ Rel = "config/hosts.example.conf"; Out = "config\hosts.example.conf" }
     )
     foreach ($f in $files) {

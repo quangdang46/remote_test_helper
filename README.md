@@ -39,6 +39,10 @@ irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/insta
 Use structured flags. Do **not** rely on interactive prompts for agent loops.
 
 ```bash
+# 0) Lab bring-up playbook (agents: prefer --json)
+rth guide --json
+rth guide windows
+
 # 1) Health of the lab
 rth doctor --json
 
@@ -194,7 +198,9 @@ cd remote_test_helper
 ## Quick Start
 
 ```bash
-rth setup          # config + SSH key guidance
+rth guide          # full setup playbook (agents: rth guide --json)
+rth guide windows  # paste-ready Windows OpenSSH + pubkey steps
+rth setup          # create config + SSH key
 rth doctor         # 3 hosts green/red
 rth list           # mac, win, ubuntu
 rth status         # short online summary
@@ -217,7 +223,8 @@ Default Ubuntu path: **SSH to Windows → `wsl -d Ubuntu -- bash -lc '…'`** (s
 
 | Command | Purpose |
 |---------|---------|
-| `rth setup` | First-time config, key gen guidance, checklists |
+| `rth guide` | Agent/human setup playbook (`--json` for structured steps) |
+| `rth setup` | Create config + SSH key (does **not** configure Windows alone) |
 | `rth doctor` | Connectivity + shell smoke |
 | `rth status` | Online / OS / user snapshot |
 | `rth list` | Configured env names |

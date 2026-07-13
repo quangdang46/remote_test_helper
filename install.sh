@@ -148,7 +148,7 @@ install_from_raw() {
   log_info "Fetching sources from $base ..."
   mkdir -p "$TMP/src/bin" "$TMP/src/lib" "$TMP/src/config" "$TMP/src/docs"
   download_file "$base/bin/rth" "$TMP/src/bin/rth" || die "Failed to download bin/rth"
-  for f in common.sh ssh.sh matrix.sh setup.sh; do
+  for f in common.sh ssh.sh matrix.sh setup.sh guide.sh; do
     download_file "$base/lib/$f" "$TMP/src/lib/$f" || die "Failed to download lib/$f"
   done
   download_file "$base/config/hosts.example.conf" "$TMP/src/config/hosts.example.conf" || true
