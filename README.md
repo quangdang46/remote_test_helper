@@ -24,8 +24,9 @@ curl -fsSL "https://raw.githubusercontent.com/quangdang46/remote_test_helper/mai
 ```
 
 ```powershell
-# Windows PowerShell
+# Windows PowerShell (window stays open; no exit)
 irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1" | iex
+# if WSL hangs:  $env:RTH_FORCE_GITBASH="1"; irm ... | iex
 ```
 
 </div>
