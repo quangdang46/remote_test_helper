@@ -8,6 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20%7C%20WSL-blue.svg)
 ![Bash](https://img.shields.io/badge/CLI-Bash-4EAA25.svg)
+![CI](https://github.com/quangdang46/remote_test_helper/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Release](https://img.shields.io/github/v/release/quangdang46/remote_test_helper?include_prereleases)
 
@@ -379,8 +380,18 @@ A: Fast path for SSH orchestration and installers; Rust is an optional later rew
 | `docs/AGENT.md` | Agent card |
 | `docs/SSH_WINDOWS.md` | OpenSSH + authorized_keys |
 | `docs/SSH_WSL.md` | WSL hop |
+| `tests/smoke.sh` | Local automated checks |
 
 **Commands:** `guide` · `setup` · `doctor` · `status` · `list` · `run` · `matrix` · `ssh` · `install.sh` / `install.ps1`.
+
+## Development / CI
+
+```bash
+./tests/smoke.sh
+```
+
+CI (GitHub Actions): smoke on Ubuntu + macOS, ShellCheck, install.sh dry-run.  
+Release: push tag `v0.1.0` → source tarball on GitHub Releases.
 
 ---
 

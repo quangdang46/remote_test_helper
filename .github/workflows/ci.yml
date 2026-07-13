@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Shell syntax (bash -n)
+        run: |
+          set -euo pipefail
+          bash -n bin/rth
+          bash -n install.sh
+          for f in lib/*.sh tests/smoke.sh; do
+            bash -n "$f"
+          done
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          ignore_paths: >-
+            logs
+          ignore_names: >-
+            install.ps1
+          severity: error
+        env:
+          # SC1091: dynamic source of lib/*.sh; SC2034: shared globals
+          SHELLCHECK_OPTS: --external-sources -e SC1091 -e SC2034
+
+      - name: Smoke tests
+        run: |
+          chmod +x bin/rth tests/smoke.sh install.sh
+          ./tests/smoke.sh
+
+      - name: Installer dry-run (local tree)
+        run: |
+          set -euo pipefail
+          DEST="${RUNNER_TEMP}/rth-bin"
+          SHARE="${RUNNER_TEMP}/rth-share"
+          ./install.sh --dest "$DEST" --share "$SHARE" --verify
+          "$DEST/rth" --version
+          "$DEST/rth" --config tests/fixtures/hosts.local.conf matrix -- 'echo ci-install-ok'
+
+  # install.ps1 cannot fully run on Linux runners without WSL/Git Bash;
+  # still assert the file is present and non-empty for Windows users.
+  windows-artifact-check:
+    name: install.ps1 present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check install.ps1
+        run: |
+          test -s install.ps1
+          grep -q 'install.ps1 v4' install.ps1 || grep -q 'rth Windows installer' install.ps1
+          grep -q 'Rth-WriteWslShim\|WriteWslShim\|rth.cmd' install.ps1
