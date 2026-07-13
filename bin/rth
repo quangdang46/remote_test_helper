@@ -30,7 +30,10 @@ _rth_resolve_root() {
   printf '%s' "$(cd "$dir/.." && pwd)"
 }
 
-RTH_ROOT="$(_rth_resolve_root)"
+# Honor pre-set RTH_ROOT (install wrappers / Windows shims)
+if [[ -z "${RTH_ROOT:-}" ]]; then
+  RTH_ROOT="$(_rth_resolve_root)"
+fi
 # shellcheck source=../lib/common.sh
 source "$RTH_ROOT/lib/common.sh"
 # shellcheck source=../lib/ssh.sh

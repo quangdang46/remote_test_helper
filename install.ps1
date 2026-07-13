@@ -1,136 +1,227 @@
 # install.ps1 — remote_test_helper (rth) for Windows
-# irm https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1 | iex
-param(
-    [string]$Dest = "",
-    [switch]$EasyMode,
-    [switch]$Verify,
-    [switch]$Uninstall,
-    [string]$Branch = "main",
-    [string]$Version = ""
-)
+#
+# README one-liner (irm|iex safe — no param() block):
+#   irm "https://raw.githubusercontent.com/quangdang46/remote_test_helper/main/install.ps1" | iex
+#
+# Optional env before irm|iex:
+#   $env:RTH_VERIFY = "1"
+#   $env:RTH_BRANCH = "main"
+#   $env:RTH_NO_EASY = "1"     # skip PATH update
+#   $env:RTH_UNINSTALL = "1"
+#
+# Or save + run:
+#   irm .../install.ps1 -OutFile $env:TEMP\rth-install.ps1
+#   powershell -ExecutionPolicy Bypass -File $env:TEMP\rth-install.ps1
 
 $ErrorActionPreference = "Stop"
-$Owner = "quangdang46"
-$Repo = "remote_test_helper"
-$Binary = "rth"
-
-function Write-Info($msg) { Write-Host "[rth] $msg" }
-function Write-Ok($msg)   { Write-Host "✓ $msg" -ForegroundColor Green }
-function Die($msg)        { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
-
-if ($Uninstall) {
-    $share = Join-Path $env:USERPROFILE ".local\share\rth"
-    $dest = if ($Dest) { $Dest } else { Join-Path $env:USERPROFILE ".local\bin" }
-    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dest "rth")
-    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dest "rth.cmd")
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $share
-    Write-Ok "Uninstalled rth"
-    exit 0
-}
-
-# Prefer WSL install (bash CLI)
-$wsl = Get-Command wsl -ErrorAction SilentlyContinue
-if ($wsl) {
-    Write-Info "WSL detected — installing rth inside default WSL distro..."
-    $ref = if ($Version) { $Version } else { $Branch }
-    $url = "https://raw.githubusercontent.com/$Owner/$Repo/$ref/install.sh"
-    $flags = "--easy-mode"
-    if ($Verify) { $flags = "$flags --verify" }
-    $bash = @"
-set -euo pipefail
-curl -fsSL '$url' | bash -s -- $flags
-"@
-    wsl -e bash -lc $bash
-    if ($LASTEXITCODE -ne 0) { Die "WSL install failed (exit $LASTEXITCODE)" }
-    Write-Ok "Installed via WSL. Open WSL and run: rth setup"
-    Write-Info "From PowerShell: wsl -e rth --help"
-    exit 0
-}
-
-# Git Bash fallback
-$bashCandidates = @(
-    "C:\Program Files\Git\bin\bash.exe",
-    "C:\Program Files (x86)\Git\bin\bash.exe"
-)
-$bashExe = $bashCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $bashExe) {
-    Die "Neither WSL nor Git Bash found. Install WSL (Ubuntu) or Git for Windows, then re-run."
-}
-
-Write-Info "Git Bash found — installing user-local rth..."
-if (-not $Dest) { $Dest = Join-Path $env:USERPROFILE ".local\bin" }
-$Share = Join-Path $env:USERPROFILE ".local\share\rth"
-New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-New-Item -ItemType Directory -Force -Path $Share | Out-Null
-
-$ref = if ($Version) { $Version } else { $Branch }
-$base = "https://raw.githubusercontent.com/$Owner/$Repo/$ref"
-$tmp = Join-Path $env:TEMP "rth-install-$([guid]::NewGuid().ToString('N'))"
-New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
 try {
-    $files = @(
-        @{ Rel = "bin/rth"; Out = "bin\rth" },
-        @{ Rel = "lib/common.sh"; Out = "lib\common.sh" },
-        @{ Rel = "lib/ssh.sh"; Out = "lib\ssh.sh" },
-        @{ Rel = "lib/matrix.sh"; Out = "lib\matrix.sh" },
-        @{ Rel = "lib/setup.sh"; Out = "lib\setup.sh" },
-        @{ Rel = "lib/guide.sh"; Out = "lib\guide.sh" },
-        @{ Rel = "config/hosts.example.conf"; Out = "config\hosts.example.conf" }
-    )
-    foreach ($f in $files) {
-        $outPath = Join-Path $tmp $f.Out
-        New-Item -ItemType Directory -Force -Path (Split-Path $outPath) | Out-Null
-        Invoke-WebRequest -Uri "$base/$($f.Rel)" -OutFile $outPath -UseBasicParsing
-    }
+    [Net.ServicePointManager]::SecurityProtocol = `
+        [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
 
-    $shareUnix = ($Share -replace '\\', '/') -replace '^([A-Za-z]):', '/$1'
-    # Map C:\Users\... -> /c/Users for Git Bash — use cygpath if available
-    $shareForBash = & $bashExe -lc "cygpath -u '$Share'" 2>$null
-    if (-not $shareForBash) {
-        # rough fallback C:\ -> /c/
-        $drive = $Share.Substring(0, 1).ToLower()
-        $shareForBash = "/$drive" + ($Share.Substring(2) -replace '\\', '/')
-    }
+$Owner  = "quangdang46"
+$Repo   = "remote_test_helper"
+$Branch = if ($env:RTH_BRANCH) { $env:RTH_BRANCH } else { "main" }
+$Dest   = if ($env:RTH_DEST) { $env:RTH_DEST } else { Join-Path $env:USERPROFILE ".local\bin" }
+$Share  = if ($env:RTH_SHARE) { $env:RTH_SHARE } else { Join-Path $env:USERPROFILE ".local\share\rth" }
+$Verify    = ($env:RTH_VERIFY -eq "1") -or ($env:RTH_VERIFY -eq "true")
+$Uninstall = ($env:RTH_UNINSTALL -eq "1") -or ($env:RTH_UNINSTALL -eq "true")
+$EasyMode  = -not (($env:RTH_NO_EASY -eq "1") -or ($env:RTH_NO_EASY -eq "true"))
+if ($env:RTH_EASY_MODE -eq "0" -or $env:RTH_EASY_MODE -eq "false") { $EasyMode = $false }
 
-    New-Item -ItemType Directory -Force -Path (Join-Path $Share "bin") | Out-Null
-    New-Item -ItemType Directory -Force -Path (Join-Path $Share "lib") | Out-Null
-    New-Item -ItemType Directory -Force -Path (Join-Path $Share "config") | Out-Null
-    Copy-Item (Join-Path $tmp "bin\rth") (Join-Path $Share "bin\rth") -Force
-    Copy-Item (Join-Path $tmp "lib\*") (Join-Path $Share "lib") -Force
-    if (Test-Path (Join-Path $tmp "config")) {
-        Copy-Item (Join-Path $tmp "config\*") (Join-Path $Share "config") -Force -ErrorAction SilentlyContinue
-    }
+function Write-Info([string]$msg) { Write-Host "[rth] $msg" }
+function Write-Ok([string]$msg)   { Write-Host "[rth] OK: $msg" -ForegroundColor Green }
+function Die([string]$msg) {
+    Write-Host "[rth] ERROR: $msg" -ForegroundColor Red
+    exit 1
+}
 
-    # Wrapper scripts
-    $rthCmd = @"
-@echo off
-"$bashExe" -lc "export RTH_ROOT='$shareForBash'; exec bash '\$RTH_ROOT/bin/rth' %*"
+function Test-WslReady {
+    if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { return $false }
+    try {
+        $p = Start-Process -FilePath "wsl.exe" -ArgumentList @("-e", "true") `
+            -Wait -PassThru -NoNewWindow -WindowStyle Hidden
+        return ($null -ne $p -and $p.ExitCode -eq 0)
+    } catch {
+        return $false
+    }
+}
+
+function Install-ViaWsl {
+    param([string]$Ref)
+    Write-Info "WSL ready - installing rth inside WSL..."
+    $url = "https://raw.githubusercontent.com/$Owner/$Repo/$Ref/install.sh"
+    $flags = "--easy-mode"
+    if ($Verify) { $flags = "$flags --verify" }
+    $inner = "curl -fsSL '$url' | bash -s -- $flags"
+    Write-Info "wsl -e bash -lc `"$inner`""
+    $p = Start-Process -FilePath "wsl.exe" `
+        -ArgumentList @("-e", "bash", "-lc", $inner) `
+        -Wait -PassThru -NoNewWindow
+    if ($null -eq $p -or $p.ExitCode -ne 0) {
+        $code = if ($p) { $p.ExitCode } else { "null" }
+        Die "WSL install failed (exit $code). Fix WSL or install Git for Windows."
+    }
+    Write-Ok "Installed via WSL"
+    Write-Info "Open WSL shell: rth setup"
+    Write-Info "From PowerShell: wsl -e rth --help"
+}
+
+function Find-GitBash {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:ProgramFiles) {
+        $candidates.Add((Join-Path $env:ProgramFiles "Git\bin\bash.exe"))
+    }
+    $pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($pf86) {
+        $candidates.Add((Join-Path $pf86 "Git\bin\bash.exe"))
+    }
+    if ($env:LOCALAPPDATA) {
+        $candidates.Add((Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe"))
+    }
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    }
+    return $null
+}
+
+function Convert-ToGitBashPath([string]$WinPath) {
+    # C:\Users\foo -> /c/Users/foo
+    if ($WinPath -match '^([A-Za-z]):\\(.*)$') {
+        $drive = $Matches[1].ToLower()
+        $rest = $Matches[2] -replace '\\', '/'
+        return "/$drive/$rest"
+    }
+    return ($WinPath -replace '\\', '/')
+}
+
+function Install-ViaGitBash {
+    param([string]$BashExe, [string]$Ref)
+
+    Write-Info "Git Bash: $BashExe"
+    Write-Info "Install share: $Share"
+    New-Item -ItemType Directory -Force -Path $Dest  | Out-Null
+    New-Item -ItemType Directory -Force -Path $Share | Out-Null
+
+    $base = "https://raw.githubusercontent.com/$Owner/$Repo/$Ref"
+    $tmp = Join-Path $env:TEMP ("rth-install-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+
+    try {
+        $files = @(
+            "bin/rth",
+            "lib/common.sh",
+            "lib/ssh.sh",
+            "lib/matrix.sh",
+            "lib/setup.sh",
+            "lib/guide.sh",
+            "config/hosts.example.conf"
+        )
+        foreach ($rel in $files) {
+            $outPath = Join-Path $tmp ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $outPath) | Out-Null
+            Write-Info "GET $rel"
+            Invoke-WebRequest -Uri "$base/$rel" -OutFile $outPath -UseBasicParsing
+        }
+
+        New-Item -ItemType Directory -Force -Path (Join-Path $Share "bin")    | Out-Null
+        New-Item -ItemType Directory -Force -Path (Join-Path $Share "lib")    | Out-Null
+        New-Item -ItemType Directory -Force -Path (Join-Path $Share "config") | Out-Null
+        Copy-Item (Join-Path $tmp "bin\rth") (Join-Path $Share "bin\rth") -Force
+        Copy-Item (Join-Path $tmp "lib\*")   (Join-Path $Share "lib") -Force
+        if (Test-Path (Join-Path $tmp "config")) {
+            Copy-Item (Join-Path $tmp "config\*") (Join-Path $Share "config") -Force -ErrorAction SilentlyContinue
+        }
+
+        $shareUnix = Convert-ToGitBashPath $Share
+
+        # Unix wrapper invoked by rth.cmd
+        $runSh = Join-Path $Share "rth-run.sh"
+        $runShBody = @"
+#!/usr/bin/env bash
+set -euo pipefail
+export RTH_ROOT="$shareUnix"
+exec bash "`$RTH_ROOT/bin/rth" "`$@"
 "@
-    # Simpler cmd shim
-    $shim = @"
+        # Write with LF for bash
+        [IO.File]::WriteAllText($runSh, ($runShBody -replace "`r`n", "`n"))
+
+        # rth.cmd — ASCII only, no fancy quotes
+        $cmdPath = Join-Path $Dest "rth.cmd"
+        $cmdBody = @"
 @echo off
 setlocal
-set "RTH_ROOT=$Share"
-"$bashExe" "%RTH_ROOT%\bin\rth" %*
+"$BashExe" "$runSh" %*
 "@
-    Set-Content -Path (Join-Path $Dest "rth.cmd") -Value $shim -Encoding ASCII
+        Set-Content -Path $cmdPath -Value $cmdBody -Encoding ASCII
 
-    if ($EasyMode) {
-        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-        if ($userPath -notlike "*$Dest*") {
-            [Environment]::SetEnvironmentVariable("Path", "$Dest;$userPath", "User")
-            Write-Info "Added $Dest to User PATH — open a new terminal"
+        if ($EasyMode) {
+            $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+            if (-not $userPath) { $userPath = "" }
+            $parts = $userPath -split ';' | Where-Object { $_ -and ($_.Trim() -ne "") }
+            if ($parts -notcontains $Dest) {
+                $newPath = if ($userPath) { "$Dest;$userPath" } else { "$Dest" }
+                [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+                $env:Path = "$Dest;$env:Path"
+                Write-Info "Added to User PATH: $Dest (open a new terminal)"
+            }
         }
-    }
 
-    if ($Verify) {
-        & $bashExe -lc "export RTH_ROOT='$shareForBash'; bash '\$RTH_ROOT/bin/rth' --version"
-    }
+        if ($Verify) {
+            Write-Info "Verify rth --version ..."
+            $p = Start-Process -FilePath $BashExe -ArgumentList @($runSh, "--version") `
+                -Wait -PassThru -NoNewWindow
+            if ($null -eq $p -or $p.ExitCode -ne 0) {
+                Die "verify failed"
+            }
+        }
 
-    Write-Ok "rth installed → $(Join-Path $Dest 'rth.cmd')"
-    Write-Info "Next: rth setup   then   rth doctor"
+        Write-Ok "rth installed -> $cmdPath"
+        Write-Info "Next: rth setup"
+        Write-Info "Then: rth doctor"
+    } finally {
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
+    }
 }
-finally {
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
+
+try {
+    if ($Uninstall) {
+        Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Dest "rth")
+        Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Dest "rth.cmd")
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Share
+        Write-Ok "Uninstalled rth"
+        exit 0
+    }
+
+    Write-Info "remote_test_helper installer (branch=$Branch)"
+
+    if (Test-WslReady) {
+        Install-ViaWsl -Ref $Branch
+        exit 0
+    }
+    Write-Info "WSL not ready - trying Git Bash..."
+
+    $bashExe = Find-GitBash
+    if ($bashExe) {
+        Install-ViaGitBash -BashExe $bashExe -Ref $Branch
+        exit 0
+    }
+
+    Die @"
+Neither working WSL nor Git Bash found.
+
+Install one of:
+  1) WSL:  wsl --install   (then reboot, open Ubuntu once)
+  2) Git for Windows: https://git-scm.com/download/win
+
+Re-run:
+  irm "https://raw.githubusercontent.com/$Owner/$Repo/main/install.ps1" | iex
+"@
+} catch {
+    Write-Host "[rth] ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
+        Write-Host $_.InvocationInfo.PositionMessage -ForegroundColor DarkGray
+    }
+    exit 1
 }
