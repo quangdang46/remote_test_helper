@@ -169,7 +169,10 @@ main() {
         ;;
       --)
         shift
-        rest+=("$@")
+        # Avoid rest+=("$@") on empty $@ under bash 3.2 + set -u
+        if [[ $# -gt 0 ]]; then
+          rest+=("$@")
+        fi
         break
         ;;
       -*)
@@ -178,7 +181,9 @@ main() {
       *)
         cmd="$1"
         shift
-        rest+=("$@")
+        if [[ $# -gt 0 ]]; then
+          rest+=("$@")
+        fi
         break
         ;;
     esac
@@ -189,18 +194,23 @@ main() {
 
   [[ -n "$cmd" ]] || { rth_usage; exit 1; }
 
+  # Bash 3.2 (macOS /bin/bash) + set -u: empty "${arr[@]}" is "unbound variable".
+  # ${arr[@]+"${arr[@]}"} expands to nothing when empty, else the elements.
   case "$cmd" in
     guide)
-      rth_cmd_guide "${rest[@]}"
+      # shellcheck disable=SC2086
+      rth_cmd_guide ${rest[@]+"${rest[@]}"}
       ;;
     setup)
-      rth_cmd_setup "${rest[@]}"
+      # shellcheck disable=SC2086
+      rth_cmd_setup ${rest[@]+"${rest[@]}"}
       ;;
     doctor)
       rth_load_config
       # allow: rth doctor -e win
       local di=0
-      while [[ $di -lt ${#rest[@]} ]]; do
+      local rlen=${#rest[@]}
+      while [[ $di -lt $rlen ]]; do
         case "${rest[$di]}" in
           -e|--env)
             di=$((di + 1))
@@ -227,7 +237,8 @@ main() {
       local env=""
       local -a cmdparts=()
       local i=0
-      while [[ $i -lt ${#rest[@]} ]]; do
+      local rlen=${#rest[@]}
+      while [[ $i -lt $rlen ]]; do
         case "${rest[$i]}" in
           -e|--env)
             i=$((i + 1))
@@ -249,7 +260,10 @@ main() {
             ;;
           --)
             i=$((i + 1))
-            cmdparts+=("${rest[@]:$i}")
+            while [[ $i -lt $rlen ]]; do
+              cmdparts+=("${rest[$i]}")
+              i=$((i + 1))
+            done
             break
             ;;
           -*)
@@ -274,7 +288,8 @@ main() {
       RTH_SSH_OPTS="${RTH_SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new} -o ConnectTimeout=${RTH_TIMEOUT}"
       local -a cmdparts=()
       local i=0
-      while [[ $i -lt ${#rest[@]} ]]; do
+      local rlen=${#rest[@]}
+      while [[ $i -lt $rlen ]]; do
         case "${rest[$i]}" in
           -e|--env)
             i=$((i + 1))
@@ -294,7 +309,10 @@ main() {
             ;;
           --)
             i=$((i + 1))
-            cmdparts+=("${rest[@]:$i}")
+            while [[ $i -lt $rlen ]]; do
+              cmdparts+=("${rest[$i]}")
+              i=$((i + 1))
+            done
             break
             ;;
           -*)
